@@ -12,6 +12,8 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
@@ -32,6 +34,9 @@ public class GitGui extends JFrame {
     private JButton addButton;
     private JButton commitButton;
     private JButton filesButton;
+    private JButton fetchButton;
+    private JButton pushButton;
+    private JButton mergeButton;
     private GitGui gitGui = this;
     private GitController controller = new GitController();
 
@@ -50,7 +55,9 @@ public class GitGui extends JFrame {
         filesPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
         JPanel commitPanel = new JPanel();
         commitPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
-        directoryLabel = new JLabel("(none selected)");
+        JPanel remotePanel = new JPanel();
+        remotePanel.setLayout(new FlowLayout(FlowLayout.LEFT));
+        directoryLabel = new JLabel("");
         cloneButton = new JButton("clone");
         cloneButton.setEnabled(false);
         cloneButton.addActionListener(e -> {
@@ -60,37 +67,48 @@ public class GitGui extends JFrame {
             } catch (GitAPIException e1) {
                 e1.printStackTrace();
             }
+            controller.setChangesStatus();
             updateState();
         });
         openButton = new JButton("open");
         openButton.setEnabled(false);
         openButton.addActionListener(e -> {
             controller.openExistingRepo(repoDirectory);
+            controller.setChangesStatus();
             updateState();
         });
-        filesButton = new JButton("file to add");
+        filesButton = new JButton("choose a file to add");
         filesButton.setEnabled(false);
-        filesLabel = new JLabel("(none selected)");
+        filesLabel = new JLabel("");
         filesButton.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setCurrentDirectory(new File(repoDirectory.getAbsolutePath()));
             chooser.setDialogTitle("choose file to add");
             if (chooser.showOpenDialog(gitGui) == JFileChooser.APPROVE_OPTION) {
                 fileToAdd = chooser.getSelectedFile();
-                filesLabel.setText(fileToAdd.getName());
-                controller.setFileStatus(fileToAdd.getName());
+                String pathString = getRelativePathString();
+                filesLabel.setText(pathString);
+                controller.setFileStatus(pathString);
             }
             updateState();
         });
         addButton = new JButton("add");
         addButton.setEnabled(false);
         addButton.addActionListener(e -> {
-            controller.add(fileToAdd);
-            controller.setFileStatus(fileToAdd.getName());
+            String pathString = getRelativePathString();
+            controller.add(pathString);
+            controller.setFileStatus(pathString);
+            controller.setChangesStatus();
+            filesLabel.setText("");
             updateState();
         });
         commitButton = new JButton("commit");
         commitButton.setEnabled(false);
+        commitButton.addActionListener(e -> {
+            controller.commit();
+            controller.setChangesStatus();
+            updateState();
+        });
         cloneButton.addActionListener(e -> {
             controller.setFileStatus(fileToAdd.getName());
             updateState();
@@ -110,6 +128,15 @@ public class GitGui extends JFrame {
             }
             updateState();
         });
+        pushButton = new JButton("push");
+        pushButton.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                controller.push();
+            }
+        });
+        fetchButton = new JButton("fetch");
+        mergeButton = new JButton("merge");
         directoryPanel.add(directoryButton);
         directoryPanel.add(directoryLabel);
         repoPanel.add(cloneButton);
@@ -118,12 +145,23 @@ public class GitGui extends JFrame {
         filesPanel.add(filesLabel);
         commitPanel.add(addButton);
         commitPanel.add(commitButton);
+        remotePanel.add(fetchButton);
+        remotePanel.add(mergeButton);
+        remotePanel.add(pushButton);
         mainPanel.add(directoryPanel);
         mainPanel.add(repoPanel);
         mainPanel.add(filesPanel);
         mainPanel.add(commitPanel);
+        mainPanel.add(remotePanel);
         this.add(mainPanel, BorderLayout.WEST);
         this.setVisible(true);
+    }
+
+    private String getRelativePathString() {
+        Path pathAbsolute = Paths.get(fileToAdd.getAbsolutePath());
+        Path pathBase = Paths.get(repoDirectory.getAbsolutePath());
+        Path pathRelative = pathBase.relativize(pathAbsolute);
+        return pathRelative.toString().replace("\\", "/");
     }
 
     private void updateRepoStatus() {
@@ -193,6 +231,7 @@ public class GitGui extends JFrame {
         boolean canClone = false;
         boolean canAdd = false;
         boolean canCommit = false;
+        boolean canChooseFile = false;
         for (String s : stateVals) {
             String[] val = s.split(":");
             if ("open".equals(val[0])) {
@@ -203,20 +242,24 @@ public class GitGui extends JFrame {
                 canAdd = Boolean.valueOf(val[1]);
             } else if ("commit".equals(val[0])) {
                 canCommit = Boolean.valueOf(val[1]);
+            } else if ("chooseFile".equals(val[0])) {
+                canChooseFile = Boolean.valueOf(val[1]);
             }
+
         }
         cloneButton.setEnabled(canClone);
         openButton.setEnabled(canOpen);
-        filesButton.setEnabled(true);
+        filesButton.setEnabled(canChooseFile);
         addButton.setEnabled(canAdd);
-        commitButton.setEnabled(true);
+        commitButton.setEnabled(canCommit);
 
 
     }
 
     private BDD setEnvState(BDD succs) {
         BDDVarSet vehiclesVars = Env.getVar("repoStatus").support()
-                .union(Env.getVar("fileStatus").support());
+                .union(Env.getVar("fileStatus").support())
+                .union(Env.getVar("haveChanges").support());
         BDD.BDDIterator it = new BDD.BDDIterator(succs, vehiclesVars);
         Set<String> envStates = new HashSet<>();
         while (it.hasNext()) {
@@ -230,8 +273,10 @@ public class GitGui extends JFrame {
         if (envStates.size() > 1) {
             String repoStatus = controller.getRepoStatus().toString();
             String fileStatus = controller.getFileStatus().toString();
+            String haveChanges = String.valueOf(controller.isHaveChanges());
             BDD succWithCurrentState = succs.and(Env.getBDDValue("repoStatus", repoStatus))
-                    .and(Env.getBDDValue("fileStatus", fileStatus));
+                    .and(Env.getBDDValue("fileStatus", fileStatus))
+                    .and(Env.getBDDValue("haveChanges", haveChanges));
             return succWithCurrentState;
         } else {
             return succs.id();

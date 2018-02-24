@@ -1,12 +1,22 @@
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.PushCommand;
 import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.Properties;
 import java.util.Set;
 
@@ -18,7 +28,17 @@ public class GitController {
     private RepoStatus repoStatus;
     private FileStatus fileStatus;
     private Repository repository;
+    private PushStatus pushStatus;
+    private boolean haveChanges;
     private Git git;
+
+    public GitController() {
+        this.properties = getGitProperties();
+        this.repoStatus = RepoStatus.Invalid;
+        this.fileStatus = FileStatus.UptoDate;
+        this.haveChanges = false;
+        this.pushStatus = PushStatus.Ok;
+    }
 
     public void setRepoStatus(RepoStatus repoStatus) {
         this.repoStatus = repoStatus;
@@ -27,21 +47,22 @@ public class GitController {
     public RepoStatus getRepoStatus() {
         return repoStatus;
     }
+
     public FileStatus getFileStatus() {
         return fileStatus;
+    }
+
+    public PushStatus getPushStatus() {
+        return pushStatus;
+    }
+
+    public boolean isHaveChanges() {
+        return haveChanges;
     }
 
 
     public void setRepository(Repository repository) {
         this.repository = repository;
-    }
-
-
-
-    public GitController() {
-        this.properties = getGitProperties();
-        this.repoStatus = RepoStatus.Invalid;
-        this.fileStatus = FileStatus.UptoDate;
     }
 
     public void cloneRepo(File directory) throws GitAPIException {
@@ -51,7 +72,7 @@ public class GitController {
                 .call();
         repository = git.getRepository();
         System.out.println("Having repository: " + git.getRepository().getDirectory());
-        if (repository.getAllRefs().entrySet().size() > 0){
+        if (repository.getAllRefs().entrySet().size() > 0) {
             repoStatus = RepoStatus.Open;
         }
     }
@@ -88,23 +109,35 @@ public class GitController {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        if (repository.getAllRefs().entrySet().size() > 0){
+        if (repository.getAllRefs().entrySet().size() > 0) {
             repoStatus = RepoStatus.Open;
         }
         git = new Git(repository);
     }
 
-    public void add(File fileToAdd) {
+    public void add(String relativePath) {
         try {
             git.add()
-                    .addFilepattern(fileToAdd.getName())
+                    .addFilepattern(relativePath)
                     .call();
         } catch (GitAPIException e) {
             e.printStackTrace();
         }
     }
 
-    public void setFileStatus(String fileName){
+    public void setChangesStatus() {
+        Status status = null;
+        try {
+            status = git.status().call();
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
+        Set<String> changed = status.getChanged();
+        Set<String> added = status.getAdded();
+        haveChanges = changed.size() > 0 || added.size() > 0;
+    }
+
+    public void setFileStatus(String fileName) {
         Status status = null;
         try {
             status = git.status().call();
@@ -116,37 +149,61 @@ public class GitController {
         Set<String> changed = status.getChanged();
         Set<String> conflicting = status.getConflicting();
         Set<String> added = status.getAdded();
-        if (modified.contains(fileName)){
+        if (modified.contains(fileName)) {
             fileStatus = FileStatus.Modified;
             return;
         }
-        if (untracked.contains(fileName)){
+        if (untracked.contains(fileName)) {
             fileStatus = FileStatus.Untracked;
             return;
         }
-        if (changed.contains(fileName)){
+        if (changed.contains(fileName)) {
             fileStatus = FileStatus.Changed;
             return;
         }
-        if (conflicting.contains(fileName)){
+        if (conflicting.contains(fileName)) {
             fileStatus = FileStatus.Conflicting;
             return;
         }
-        if (added.contains(fileName)){
+        if (added.contains(fileName)) {
             fileStatus = FileStatus.Added;
             return;
         }
         fileStatus = FileStatus.UptoDate;
+    }
 
-//        System.out.println("Added: " + status.getAdded());
-//        System.out.println("Changed: " + status.getChanged());
-//        System.out.println("Conflicting: " + status.getConflicting());
-//        System.out.println("ConflictingStageState: " + status.getConflictingStageState());
-//        System.out.println("IgnoredNotInIndex: " + status.getIgnoredNotInIndex());
-//        System.out.println("Missing: " + status.getMissing());
-//        System.out.println("Modified: " + status.getModified());
-//        System.out.println("Removed: " + status.getRemoved());
-//        System.out.println("Untracked: " + status.getUntracked());
-//        System.out.println("UntrackedFolders: " + status.getUntrackedFolders());
+    public void commit() {
+        DateFormat df = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss");
+        Date now = new Date();
+        String commitTime = df.format(now);
+        try {
+            git.commit()
+                    .setMessage("Commit by spectra on " + commitTime)
+                    .call();
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void push() {
+        PushCommand pushCommand = git.push();
+        pushCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider(properties.getProperty("username"),
+                properties.getProperty("password")));
+        try {
+            Iterable<PushResult> pushResults = pushCommand.call();
+            for (PushResult result : pushResults) {
+                RemoteRefUpdate update = result.getRemoteUpdate("refs/heads/master");
+                if (!update.getStatus().equals(RemoteRefUpdate.Status.OK)){
+                    pushStatus = PushStatus.Rejected;
+                    return;
+                }
+            }
+            pushStatus = PushStatus.Ok;
+            System.out.println("pushed");
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
+
+
     }
 }
