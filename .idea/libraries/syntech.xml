@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="syntech">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/syntech.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$PROJECT_DIR$/syntech.jar!/" />
+    </SOURCES>
+  </library>
+</component>
