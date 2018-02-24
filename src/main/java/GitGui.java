@@ -43,7 +43,7 @@ public class GitGui extends JFrame {
     public GitGui() {
         this.setSize(800, 600);
         this.setLocationRelativeTo(null);
-        this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         this.setTitle("Spectra Git");
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.PAGE_AXIS));
@@ -133,6 +133,7 @@ public class GitGui extends JFrame {
             @Override
             public void actionPerformed(ActionEvent e) {
                 controller.push();
+                updateState();
             }
         });
         fetchButton = new JButton("fetch");
