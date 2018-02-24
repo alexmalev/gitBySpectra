@@ -1,0 +1,32 @@
+/*
+ * Auto-generated Spectra file
+ */
+module MyGit			
+env RepoStatus repoStatus;
+env FileStatus fileStatus;
+env ChangesStatus changesStatus;
+//env boolean conflict;
+//env boolean
+//env boolean untracked;
+//env boolean staged;
+//
+sys boolean add;
+sys boolean commit;
+sys boolean clone;
+sys boolean open;
+//sys boolean merge;
+//sys boolean push;
+
+type RepoStatus = {Empty, Invalid, Valid, Open};
+type FileStatus = {Added, Changed, Conflicting, Untracked, Modified, UptoDate};
+type ChangesStatus = {Added, Changed, Nothing};
+//type ChangesStatus = {Clean, Changed};
+//type Command = {Clone, Add, Commit, Merge, Fetch, Push, Branch}; 
+//type Status = {Added, Conflict};
+asm repoStatus =Invalid;
+asm fileStatus = UptoDate;
+asm changesStatus = Nothing;
+gar G repoStatus=Empty <-> clone ;
+gar G repoStatus=Valid <-> open;
+gar G (fileStatus=Modified | fileStatus=Untracked) & (repoStatus=Open) <-> add;
+gar G (changesStatus=Added | changesStatus=Changed) & (repoStatus=Open) <-> commit;
