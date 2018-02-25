@@ -1,21 +1,20 @@
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.PushCommand;
-import org.eclipse.jgit.api.Status;
+import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.BranchTrackingStatus;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Properties;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Created by alexanderm on 24/02/2018.
@@ -25,16 +24,21 @@ public class GitController {
     private RepoStatus repoStatus;
     private FileStatus fileStatus;
     private Repository repository;
-    private PushStatus pushStatus;
-    private boolean haveChanges;
+    private boolean canPush;
+    private RelativeToRemote relativeToRemote;
+    private boolean haveUncommitedChanges;
+    private boolean haveUnstagedChanges;
+    private boolean merging;
     private Git git;
 
     public GitController() {
         this.properties = getGitProperties();
         this.repoStatus = RepoStatus.Invalid;
         this.fileStatus = FileStatus.UptoDate;
-        this.haveChanges = false;
-        this.pushStatus = PushStatus.Ok;
+        this.haveUncommitedChanges = false;
+        this.canPush = false;
+        this.relativeToRemote = RelativeToRemote.UptoDate;
+        this.merging = false;
     }
 
     public void setRepoStatus(RepoStatus repoStatus) {
@@ -49,12 +53,24 @@ public class GitController {
         return fileStatus;
     }
 
-    public PushStatus getPushStatus() {
-        return pushStatus;
+    public boolean getPushStatus() {
+        return canPush;
     }
 
-    public boolean isHaveChanges() {
-        return haveChanges;
+    public boolean isMerging() {
+        return merging;
+    }
+
+
+    public boolean isHaveUncommitedChanges() {
+        return haveUncommitedChanges;
+    }
+
+    public boolean isHaveUnstagedChanges() {
+        return haveUnstagedChanges;
+    }
+    public RelativeToRemote getRelativeToRemote() {
+        return relativeToRemote;
     }
 
 
@@ -68,7 +84,6 @@ public class GitController {
                 .setDirectory(directory)
                 .call();
         repository = git.getRepository();
-        System.out.println("Having repository: " + git.getRepository().getDirectory());
         if (repository.getAllRefs().entrySet().size() > 0) {
             repoStatus = RepoStatus.Open;
         }
@@ -122,7 +137,7 @@ public class GitController {
         }
     }
 
-    public void setChangesStatus() {
+    private void setUncommitedChangesStatus() {
         Status status = null;
         try {
             status = git.status().call();
@@ -131,7 +146,19 @@ public class GitController {
         }
         Set<String> changed = status.getChanged();
         Set<String> added = status.getAdded();
-        haveChanges = changed.size() > 0 || added.size() > 0;
+        haveUncommitedChanges = changed.size() > 0 || added.size() > 0;
+    }
+
+    private void setUnstagedChangesStatus() {
+        Status status = null;
+        try {
+            status = git.status().call();
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
+        Set<String> untracked = status.getUntracked();
+        Set<String> modified = status.getModified();
+        haveUnstagedChanges = untracked.size() > 0 || modified.size() > 0;
     }
 
     public void setFileStatus(String fileName) {
@@ -182,6 +209,14 @@ public class GitController {
         }
     }
 
+    public void fetch() {
+        try {
+            git.fetch().setCheckFetchedObjects(true).call();
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
+    }
+
     public void push() {
         PushCommand pushCommand = git.push();
         pushCommand.setCredentialsProvider(new UsernamePasswordCredentialsProvider(properties.getProperty("username"),
@@ -190,16 +225,66 @@ public class GitController {
             Iterable<PushResult> pushResults = pushCommand.call();
             for (PushResult result : pushResults) {
                 RemoteRefUpdate update = result.getRemoteUpdate("refs/heads/master");
-                if (!update.getStatus().equals(RemoteRefUpdate.Status.OK)){
-                    pushStatus = PushStatus.Rejected;
+                if (!update.getStatus().equals(RemoteRefUpdate.Status.OK)) {
+                    canPush = false;
                     return;
                 }
             }
-            pushStatus = PushStatus.Ok;
-            System.out.println("pushed");
+            canPush = true;
         } catch (GitAPIException e) {
             e.printStackTrace();
         }
 
+    }
+
+    private void setMergingStatus() {
+        File mergeFile = new File(repository.getDirectory() + "/MERGE_HEAD");
+        boolean updatedMerging = mergeFile.isFile();
+        if (merging & !updatedMerging)
+            canPush = true;
+        merging = mergeFile.isFile();
+    }
+
+    private void setStatusRelativeToRemote() {
+        String masterBranch = "refs/heads/master";
+        BranchTrackingStatus trackingStatus = null;
+        try {
+            trackingStatus = BranchTrackingStatus.of(repository, masterBranch);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        if (trackingStatus != null) {
+            int aheadCount = trackingStatus.getAheadCount();
+            int behindCount = trackingStatus.getBehindCount();
+            if (aheadCount > 0 && behindCount > 0)
+                relativeToRemote = RelativeToRemote.Diverged;
+            else if (aheadCount > 0)
+                relativeToRemote = RelativeToRemote.Ahead;
+            else if (behindCount > 0)
+                relativeToRemote = RelativeToRemote.Behind;
+            else
+                relativeToRemote = RelativeToRemote.UptoDate;
+        }
+    }
+
+    public void refreshGitStatus() {
+        setUncommitedChangesStatus();
+        setUnstagedChangesStatus();
+        setMergingStatus();
+        setStatusRelativeToRemote();
+    }
+
+    public void merge() {
+        Ref fetchHead = null;
+        try {
+            fetchHead = git.getRepository().exactRef("FETCH_HEAD");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try {
+            git.merge().include(fetchHead).setFastForward(MergeCommand.FastForwardMode.NO_FF).call();
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
     }
 }

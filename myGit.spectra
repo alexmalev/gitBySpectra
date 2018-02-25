@@ -4,29 +4,38 @@
 module MyGit			
 env RepoStatus repoStatus;
 env FileStatus fileStatus;
-env ChangesStatus changesStatus;
-//env boolean conflict;
-//env boolean
-//env boolean untracked;
-//env boolean staged;
-//
+env boolean haveUncommitedChanges;
+env boolean haveUnstagedChanges;
+env Relative relativeToRemote;
+env boolean isMerging;
+env boolean isPushPossible;
+
+
 sys boolean add;
 sys boolean commit;
 sys boolean clone;
 sys boolean open;
-//sys boolean merge;
-//sys boolean push;
+sys boolean chooseFile;
+sys boolean fetch;
+sys boolean merge;
+sys boolean push;
 
+type Relative = {Behind, Ahead, Diverged, UptoDate};
 type RepoStatus = {Empty, Invalid, Valid, Open};
 type FileStatus = {Added, Changed, Conflicting, Untracked, Modified, UptoDate};
-type ChangesStatus = {Added, Changed, Nothing};
-//type ChangesStatus = {Clean, Changed};
-//type Command = {Clone, Add, Commit, Merge, Fetch, Push, Branch}; 
-//type Status = {Added, Conflict};
+
 asm repoStatus =Invalid;
 asm fileStatus = UptoDate;
-asm changesStatus = Nothing;
+asm relativeToRemote = UptoDate;
+asm !haveUncommitedChanges;
+asm !isMerging;
+asm isPushPossible;
+asm !haveUnstagedChanges;
 gar G repoStatus=Empty <-> clone ;
 gar G repoStatus=Valid <-> open;
-gar G (fileStatus=Modified | fileStatus=Untracked) & (repoStatus=Open) <-> add;
-gar G (changesStatus=Added | changesStatus=Changed) & (repoStatus=Open) <-> commit;
+gar G repoStatus=Open <-> chooseFile;
+gar G repoStatus=Open <-> fetch;
+gar G (fileStatus=Modified | fileStatus=Untracked | fileStatus=Conflicting) & (repoStatus=Open) <-> add;
+gar G (fileStatus=Changed | fileStatus=Added) & repoStatus=Open <-> commit;
+gar G (relativeToRemote = Behind | relativeToRemote = Diverged) & !isMerging & !haveUnstagedChanges &!haveUncommitedChanges & repoStatus=Open <-> merge;
+gar G (relativeToRemote = Ahead) & repoStatus=Open <-> push;
