@@ -69,6 +69,7 @@ public class GitController {
     public boolean isHaveUnstagedChanges() {
         return haveUnstagedChanges;
     }
+
     public RelativeToRemote getRelativeToRemote() {
         return relativeToRemote;
     }
@@ -196,12 +197,12 @@ public class GitController {
         fileStatus = FileStatus.UptoDate;
     }
 
-    public void commit() {
+    public void commit(String relativePath) {
         DateFormat df = new SimpleDateFormat("MM/dd/yyyy HH:mm:ss");
         Date now = new Date();
         String commitTime = df.format(now);
         try {
-            git.commit()
+            git.commit().setOnly(relativePath)
                     .setMessage("Commit by spectra on " + commitTime)
                     .call();
         } catch (GitAPIException e) {
@@ -286,5 +287,40 @@ public class GitController {
         } catch (GitAPIException e) {
             e.printStackTrace();
         }
+    }
+
+    public String getStatusAsText() {
+        Status status = null;
+        try {
+            status = git.status().call();
+        } catch (GitAPIException e) {
+            e.printStackTrace();
+        }
+        StringBuilder result = new StringBuilder();
+        Set<String> added = status.getAdded();
+        if (added.size() > 0) {
+            result.append("Added: " + added + '\n' +'\n');
+        }
+        Set<String> changed = status.getChanged();
+        if (changed.size() > 0) {
+            result.append("Changed: " + changed + '\n' +'\n');
+        }
+        Set<String> conflicting = status.getConflicting();
+        if (conflicting.size() > 0) {
+            result.append("Conflicting: " + conflicting + '\n' +'\n');
+        }
+        Set<String> ignoredNotInIndex = status.getIgnoredNotInIndex();
+        if (ignoredNotInIndex.size() > 0) {
+            result.append("Ignored: " + ignoredNotInIndex + '\n' +'\n');
+        }
+        Set<String> modified = status.getModified();
+        if (modified.size() > 0) {
+            result.append("Modified: " + modified + '\n' +'\n');
+        }
+        Set<String> untracked = status.getUntracked();
+        if (untracked.size() > 0) {
+            result.append("Untracked: " + untracked + '\n' +'\n');
+        }
+        return result.toString();
     }
 }

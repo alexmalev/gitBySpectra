@@ -7,6 +7,7 @@ import tau.smlab.syntech.games.controller.symbolic.SymbolicController;
 import tau.smlab.syntech.games.controller.symbolic.SymbolicControllerReaderWriter;
 import tau.smlab.syntech.jtlv.BDDPackage;
 import tau.smlab.syntech.jtlv.Env;
+
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
@@ -32,6 +33,7 @@ public class GitGui extends JFrame {
     private JButton fetchButton;
     private JButton pushButton;
     private JButton mergeButton;
+    private JTextArea filesStatusTextArea;
     private GitGui gitGui = this;
     private GitController controller = new GitController();
 
@@ -43,7 +45,7 @@ public class GitGui extends JFrame {
         JPanel mainPanel = new JPanel();
         mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.PAGE_AXIS));
         JPanel directoryPanel = new JPanel();
-        directoryPanel.setLayout(new FlowLayout());
+        directoryPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
         JPanel repoPanel = new JPanel();
         repoPanel.setLayout(new FlowLayout(FlowLayout.LEFT));
         JPanel filesPanel = new JPanel();
@@ -72,13 +74,13 @@ public class GitGui extends JFrame {
             controller.refreshGitStatus();
             updateState();
         });
-        filesButton = new JButton("choose a file to add");
+        filesButton = new JButton("choose a file to update");
         filesButton.setEnabled(false);
         filesLabel = new JLabel("");
         filesButton.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setCurrentDirectory(new File(repoDirectory.getAbsolutePath()));
-            chooser.setDialogTitle("choose file to add");
+            chooser.setDialogTitle("choose file to update");
             if (chooser.showOpenDialog(gitGui) == JFileChooser.APPROVE_OPTION) {
                 fileToAdd = chooser.getSelectedFile();
                 String pathString = getRelativePathString();
@@ -100,17 +102,17 @@ public class GitGui extends JFrame {
         commitButton = new JButton("commit");
         commitButton.setEnabled(false);
         commitButton.addActionListener(e -> {
-            controller.commit();
+            String pathString = getRelativePathString();
+            controller.commit(pathString);
             controller.setFileStatus(fileToAdd.getName());
             controller.refreshGitStatus();
             updateState();
         });
         cloneButton.addActionListener(e -> {
-//            controller.setFileStatus(fileToAdd.getName()); TODO
             updateState();
         });
         JButton directoryButton = new JButton("choose a directory");
-        directoryButton.setToolTipText("empty directory to clone to, or existing repository");
+        directoryButton.setToolTipText("empty directory to clone to, or existing repository WITH REMOTE ORIGIN");
         directoryButton.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setCurrentDirectory(new File("."));
@@ -158,7 +160,17 @@ public class GitGui extends JFrame {
         mainPanel.add(filesPanel);
         mainPanel.add(commitPanel);
         mainPanel.add(remotePanel);
+        JPanel statusPanel = new JPanel();
+        statusPanel.setLayout(new BoxLayout(statusPanel, BoxLayout.PAGE_AXIS));
+        JLabel filesStatus = new JLabel("changed files");
+        filesStatusTextArea = new JTextArea(20, 20);
+        filesStatusTextArea.setEditable(false);
+        filesStatusTextArea.setLineWrap(true);
+        filesStatusTextArea.setWrapStyleWord(true);
+        statusPanel.add(filesStatus);
+        statusPanel.add(filesStatusTextArea);
         this.add(mainPanel, BorderLayout.WEST);
+        this.add(statusPanel, BorderLayout.EAST);
         this.setVisible(true);
     }
 
@@ -252,11 +264,11 @@ public class GitGui extends JFrame {
                 canCommit = Boolean.valueOf(val[1]);
             } else if ("chooseFile".equals(val[0])) {
                 canChooseFile = Boolean.valueOf(val[1]);
-            }else if ("fetch".equals(val[0])) {
+            } else if ("fetch".equals(val[0])) {
                 canFetch = Boolean.valueOf(val[1]);
-            }else if ("merge".equals(val[0])) {
+            } else if ("merge".equals(val[0])) {
                 canMerge = Boolean.valueOf(val[1]);
-            }else if ("push".equals(val[0])) {
+            } else if ("push".equals(val[0])) {
                 canPush = Boolean.valueOf(val[1]);
             }
 
@@ -269,6 +281,10 @@ public class GitGui extends JFrame {
         fetchButton.setEnabled(canFetch);
         mergeButton.setEnabled(canMerge);
         pushButton.setEnabled(canPush);
+        if (controller.getRepoStatus().equals(RepoStatus.Open))
+            filesStatusTextArea.setText(controller.getStatusAsText());
+        else
+            filesStatusTextArea.setText("");
 
 
     }
